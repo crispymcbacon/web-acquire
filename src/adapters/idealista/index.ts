@@ -1,4 +1,6 @@
 import type { SiteAdapter } from '../../core/types.js';
+import { isIdealistaDetailUrl, parseIdealistaDetail } from './parser.js';
+import type { IdealistaParseResult } from './types.js';
 
 export class IdealistaAdapter implements SiteAdapter {
   readonly name = 'idealista';
@@ -8,7 +10,23 @@ export class IdealistaAdapter implements SiteAdapter {
     return this.domains.includes(url.hostname.toLowerCase() as (typeof this.domains)[number]);
   }
 
-  async parse(_document: string, _url: URL): Promise<unknown> {
-    throw new Error('Idealista extraction is not implemented yet.');
+  isDetailUrl(url: string | URL): boolean {
+    return isIdealistaDetailUrl(url);
+  }
+
+  async parse(document: string, url: URL): Promise<IdealistaParseResult> {
+    return parseIdealistaDetail({ html: document, url });
   }
 }
+
+export { isIdealistaDetailUrl, parseIdealistaDetail } from './parser.js';
+export type {
+  IdealistaAdvertiser,
+  IdealistaCompleteness,
+  IdealistaFacts,
+  IdealistaListing,
+  IdealistaListingState,
+  IdealistaParseResult,
+  IdealistaTextEvidence,
+  ParseIdealistaDetailInput,
+} from './types.js';

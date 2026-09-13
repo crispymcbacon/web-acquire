@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { selectAdapter } from './core/adapters.js';
 import { parseHttpUrl } from './core/urls.js';
 import { IdealistaAdapter } from './adapters/idealista/index.js';
@@ -18,6 +20,7 @@ function printHelp(): void {
 
 Usage:
   web-acquire fetch <url> [--json] [--timeout <seconds>] [--output-dir <dir>]
+  web-acquire extract <url> [--json] [--timeout <seconds>] [--output-dir <dir>]
   web-acquire adapter <url>
 `);
 }
@@ -95,6 +98,57 @@ async function fetchUrl(value: string, options: FetchOptions): Promise<void> {
   if (!result.success) process.exitCode = 1;
 }
 
+async function extractUrl(value: string, options: FetchOptions): Promise<void> {
+  const url = parseHttpUrl(value);
+  const adapter = selectAdapter(url.toString(), adapters);
+  if (!(adapter instanceof IdealistaAdapter) || !adapter.isDetailUrl(url)) {
+    throw new Error('No extraction adapter available for this URL');
+  }
+
+  const provider = new BrightDataUnlockerProvider({
+    timeoutMs: options.timeoutMs,
+    outputDir: options.outputDir,
+  });
+  const acquisition = await provider.acquire({ url: url.toString() });
+  if (!acquisition.success) {
+    throw new Error(acquisition.errors.join('; ') || 'Acquisition failed');
+  }
+  if (!acquisition.outputDir || !acquisition.retainedContentPath) {
+    throw new Error('Acquisition did not retain a response document');
+  }
+
+  const responsePath = path.resolve(acquisition.outputDir, acquisition.retainedContentPath);
+  const html = await readFile(responsePath, 'utf8');
+  const parsed = await adapter.parse(html, url);
+  if (!parsed.listing || !parsed.completeness) {
+    throw new Error(parsed.errors.join('; ') || 'No extraction adapter available for this URL');
+  }
+
+  const listingPath = path.join(path.dirname(responsePath), 'listing.json');
+  await writeFile(listingPath, `${JSON.stringify(parsed.listing, null, 2)}\n`, 'utf8');
+  const outputDir = acquisition.outputDir;
+  const result = {
+    ok: parsed.completeness.accepted,
+    outputDir,
+    listingFile: path.relative(process.cwd(), listingPath) || 'listing.json',
+    completeness: parsed.completeness,
+    ...(options.json ? { listing: parsed.listing } : {}),
+  };
+
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`${parsed.completeness.accepted ? '✓' : '!'} extracted ${parsed.listing.url}`);
+    console.log(`state: ${parsed.listing.listing_state}`);
+    console.log(`output: ${outputDir}`);
+    if (!parsed.completeness.accepted) {
+      console.error(`incomplete: ${parsed.completeness.rejection_reasons.join(', ')}`);
+    }
+  }
+
+  if (!parsed.completeness.accepted) process.exitCode = 1;
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, value, ...options] = argv;
 
@@ -109,11 +163,13 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     return;
   }
 
-  if (command === 'fetch') {
+  if (command === 'fetch' || command === 'extract') {
     const jsonRequested = options.includes('--json');
     try {
-      if (!value) throw new Error('Usage: web-acquire fetch <url> [options]');
-      await fetchUrl(value, parseFetchOptions(options));
+      if (!value) throw new Error(`Usage: web-acquire ${command} <url> [options]`);
+      const parsedOptions = parseFetchOptions(options);
+      if (command === 'fetch') await fetchUrl(value, parsedOptions);
+      else await extractUrl(value, parsedOptions);
     } catch (error: unknown) {
       if (!jsonRequested) throw error;
       console.log(JSON.stringify({

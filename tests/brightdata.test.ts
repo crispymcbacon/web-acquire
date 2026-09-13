@@ -231,6 +231,17 @@ describe('Bright Data Web Unlocker provider', () => {
     expect(() => JSON.parse(output)).not.toThrow();
     expect(JSON.parse(output).ok).toBe(false);
   });
+
+  it('rejects extraction without a detail adapter before acquisition', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await main(['extract', 'https://example.com', '--json']);
+
+    const output = log.mock.calls.map(([line]) => line).join('\n');
+    expect(JSON.parse(output)).toEqual({
+      ok: false,
+      errors: ['No extraction adapter available for this URL'],
+    });
+  });
 });
 
 describe('provider defaults', () => {
