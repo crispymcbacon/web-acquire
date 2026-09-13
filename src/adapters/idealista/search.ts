@@ -199,13 +199,17 @@ function parseSummary($: CheerioAPI, pageUrl: URL): IdealistaSearchResult['summa
   const currentText = paginationText.match(/(?:página|pagina|page)\s*(\d+)(?:\s+de\s+\d+)?/i)?.[1]
     ?? $('.pagination .active, .pagination [aria-current="page"]').first().text().match(/\d+/)?.[0];
   const totalText = paginationText.match(/(?:de|of)\s+(\d+)\b/i)?.[1];
-  const pageLinks = $('.pagination a[href], nav[aria-label*="pagin" i] a[href], [class*="pagination"] a[href]')
-    .map((_, element) => new URL($(element).attr('href') ?? '', pageUrl).pathname.match(/pagina-(\d+)\.htm/i)?.[1])
-    .get().filter(Boolean).map(Number);
+  const lastPageElement = $('.pagination a[rel="last"], .pagination a[aria-label*="última" i], .pagination a[aria-label*="ultima" i], .pagination a[title*="última" i], .pagination a[title*="ultima" i], .pagination .last a, [class*="pagination-last"] a').first();
+  let explicitLastPage: number | null = null;
+  if (lastPageElement.length > 0) {
+    const hrefPage = lastPageElement.attr('href')?.match(/pagina-(\d+)\.htm/i)?.[1];
+    const textPage = nodeText($, lastPageElement).match(/\b\d+\b/)?.[0];
+    explicitLastPage = hrefPage ? Number(hrefPage) : textPage ? Number(textPage) : null;
+  }
   return {
     resultCount: resultCount ? parseLocalizedNumber(resultCount) : null,
     currentPage: pageFromUrl ? Number(pageFromUrl) : currentText ? Number(currentText) : null,
-    totalPages: totalText ? Number(totalText) : pageLinks.length > 0 ? Math.max(...pageLinks) : null,
+    totalPages: totalText ? Number(totalText) : explicitLastPage,
   };
 }
 

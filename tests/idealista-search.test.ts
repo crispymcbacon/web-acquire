@@ -99,6 +99,17 @@ describe('Idealista search parsing', () => {
     });
   });
 
+  it('does not mistake a moving pagination window for the final page count', async () => {
+    const windowed = parseIdealistaSearch({ html: await fixture('search-pagination-window.html'), url: searchUrl });
+    expect(windowed.search?.summary.totalPages).toBeNull();
+
+    const explicitLast = parseIdealistaSearch({
+      html: await fixture('search-pagination-last.html'),
+      url: `${searchUrl}pagina-12.htm`,
+    });
+    expect(explicitLast.search?.summary.totalPages).toBe(90);
+  });
+
   it('accepts an explicit zero-result search', async () => {
     const result = parseIdealistaSearch({ html: await fixture('search-empty.html'), url: searchUrl });
     expect(result.search?.listings).toEqual([]);

@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { selectAdapter } from './core/adapters.js';
+import { collectPaginatedSearch, MAX_COLLECTION_PAGES, type AcquiredSearchPage } from './core/collect.js';
 import { parseHttpUrl } from './core/urls.js';
 import {
   IdealistaAdapter,
+  idealistaSearchCollectionAdapter,
   parseIdealistaDetail,
   parseIdealistaSearch,
 } from './adapters/idealista/index.js';
@@ -19,12 +21,17 @@ interface FetchOptions {
   outputDir?: string;
 }
 
+interface CollectionOptions extends FetchOptions {
+  maxPages: number;
+}
+
 function printHelp(): void {
   console.log(`web-acquire - reusable web acquisition CLI
 
 Usage:
   web-acquire fetch <url> [--json] [--timeout <seconds>] [--output-dir <dir>]
   web-acquire extract <url> [--json] [--timeout <seconds>] [--output-dir <dir>]
+  web-acquire collect <search-url> [--json] [--timeout <seconds>] [--output-dir <dir>] [--max-pages <number>]
   web-acquire adapter <url>
 `);
 }
@@ -69,6 +76,135 @@ function parseFetchOptions(options: string[]): FetchOptions {
     }
   }
   return result;
+}
+
+function parseMaxPages(value: string): number {
+  const pages = Number(value);
+  if (!Number.isInteger(pages) || pages < 1 || pages > MAX_COLLECTION_PAGES) {
+    throw new Error(`--max-pages must be an integer between 1 and ${MAX_COLLECTION_PAGES}`);
+  }
+  return pages;
+}
+
+function parseCollectionOptions(options: string[]): CollectionOptions {
+  const result: CollectionOptions = { json: false, maxPages: 10 };
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
+    if (option === '--json') {
+      result.json = true;
+    } else if (option === '--timeout') {
+      const value = options[++index];
+      if (!value || value.startsWith('--')) throw new Error('--timeout requires seconds');
+      result.timeoutMs = parsePositiveSeconds(value);
+    } else if (option === '--output-dir') {
+      const value = options[++index];
+      if (!value || value.startsWith('--')) throw new Error('--output-dir requires a directory');
+      result.outputDir = value;
+    } else if (option === '--max-pages') {
+      const value = options[++index];
+      if (!value || value.startsWith('--')) throw new Error('--max-pages requires a number');
+      result.maxPages = parseMaxPages(value);
+    } else {
+      throw new Error(`Unknown collect option: ${option}`);
+    }
+  }
+  return result;
+}
+
+async function collectUrl(value: string, options: CollectionOptions): Promise<void> {
+  const url = parseHttpUrl(value);
+  const adapter = selectAdapter(url.toString(), adapters);
+  if (!(adapter instanceof IdealistaAdapter) || adapter.pageType(url) !== 'search') {
+    throw new Error('No paginated search adapter available for this URL');
+  }
+
+  const collectedAt = new Date().toISOString();
+  const collectionRoot = path.resolve(options.outputDir ?? path.join('runs', `${collectedAt.replace(/[.:]/g, '-')}-idealista-collection`));
+  await mkdir(collectionRoot, { recursive: true });
+
+  const acquirePage = async (pageUrl: string, index: number): Promise<AcquiredSearchPage> => {
+    const pageDir = path.join(collectionRoot, 'pages', String(index).padStart(3, '0'));
+    await mkdir(pageDir, { recursive: true });
+    const outputDir = path.relative(collectionRoot, pageDir) || '.';
+    const provider = new BrightDataUnlockerProvider({ timeoutMs: options.timeoutMs, outputDir: pageDir });
+    let acquisition;
+    try {
+      acquisition = await provider.acquire({ url: pageUrl });
+    } catch (error: unknown) {
+      return {
+        success: false,
+        outputDir,
+        errors: [error instanceof Error ? error.message : String(error)],
+      };
+    }
+    if (!acquisition.success) {
+      return {
+        success: false,
+        outputDir,
+        status: acquisition.httpStatus ? `http_${acquisition.httpStatus}` : 'acquisition_failed',
+        warnings: acquisition.warnings,
+        errors: acquisition.errors,
+      };
+    }
+    if (!acquisition.retainedContentPath) {
+      return { success: false, outputDir, errors: ['Acquisition did not retain a response document'] };
+    }
+    try {
+      const retainedPath = path.resolve(acquisition.outputDir ?? pageDir, acquisition.retainedContentPath);
+      return {
+        success: true,
+        document: await readFile(retainedPath, 'utf8'),
+        outputDir,
+        status: acquisition.httpStatus ? `http_${acquisition.httpStatus}` : 'acquired',
+        warnings: acquisition.warnings,
+        errors: acquisition.errors,
+      };
+    } catch (error: unknown) {
+      return {
+        success: false,
+        outputDir,
+        errors: [`Unable to read retained response: ${error instanceof Error ? error.message : String(error)}`],
+      };
+    }
+  };
+
+  const inventory = await collectPaginatedSearch({
+    initialUrl: url,
+    source: adapter.name,
+    maxPages: options.maxPages,
+    adapter: idealistaSearchCollectionAdapter,
+    acquirePage,
+    collectedAt,
+    onPageParsed: async (event) => {
+      await writeFile(
+        path.join(collectionRoot, event.outputDir, 'search.json'),
+        `${JSON.stringify(event.page, null, 2)}\n`,
+        'utf8',
+      );
+    },
+  });
+  const inventoryPath = path.join(collectionRoot, 'inventory.json');
+  await writeFile(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`, 'utf8');
+
+  const outputDir = options.outputDir ?? (path.relative(process.cwd(), collectionRoot) || '.');
+  const result = {
+    ok: inventory.status === 'complete' || inventory.status === 'max_pages_reached',
+    outputDir,
+    inventoryFile: path.relative(process.cwd(), inventoryPath) || 'inventory.json',
+    status: inventory.status,
+    summary: inventory.summary,
+    ...(options.json ? { inventory } : {}),
+  };
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`${result.ok ? '✓' : '!'} collected ${inventory.summary.uniqueListings} unique listings`);
+    console.log(`status: ${inventory.status}`);
+    console.log(`pages: ${inventory.summary.pagesFetched}`);
+    console.log(`output: ${outputDir}`);
+    for (const warning of inventory.warnings) console.error(`warning: ${warning}`);
+  }
+  if (!result.ok) process.exitCode = 1;
 }
 
 async function fetchUrl(value: string, options: FetchOptions): Promise<void> {
@@ -203,13 +339,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     return;
   }
 
-  if (command === 'fetch' || command === 'extract') {
+  if (command === 'fetch' || command === 'extract' || command === 'collect') {
     const jsonRequested = options.includes('--json');
     try {
       if (!value) throw new Error(`Usage: web-acquire ${command} <url> [options]`);
-      const parsedOptions = parseFetchOptions(options);
-      if (command === 'fetch') await fetchUrl(value, parsedOptions);
-      else await extractUrl(value, parsedOptions);
+      if (command === 'collect') {
+        await collectUrl(value, parseCollectionOptions(options));
+      } else {
+        const parsedOptions = parseFetchOptions(options);
+        if (command === 'fetch') await fetchUrl(value, parsedOptions);
+        else await extractUrl(value, parsedOptions);
+      }
     } catch (error: unknown) {
       if (!jsonRequested) throw error;
       console.log(JSON.stringify({

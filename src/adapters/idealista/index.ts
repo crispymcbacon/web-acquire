@@ -43,6 +43,7 @@ export class IdealistaAdapter implements SiteAdapter {
 
 export { isIdealistaDetailUrl, parseIdealistaDetail } from './parser.js';
 export { isIdealistaSearchUrl, parseIdealistaSearch } from './search.js';
+export { idealistaSearchCollectionAdapter } from './collection.js';
 export type {
   IdealistaAdvertiser,
   IdealistaCompleteness,
