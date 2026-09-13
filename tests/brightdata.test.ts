@@ -75,6 +75,23 @@ describe('Bright Data Web Unlocker provider', () => {
     expect(JSON.stringify(result)).not.toContain(token);
   });
 
+  it('uses a text filename for plain-text responses', async () => {
+    const outputDir = await temporaryDirectory();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('plain text', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      }),
+    );
+
+    const result = await new BrightDataUnlockerProvider({ config, outputDir, fetchImpl }).acquire({
+      url: 'https://geo.brdtest.com/welcome.txt',
+    });
+
+    expect(result.retainedContentPath).toBe('response.txt');
+    expect(await readFile(path.join(outputDir, 'response.txt'), 'utf8')).toBe('plain text');
+  });
+
   it('validates missing token and zone without making a request', async () => {
     const outputDir = await temporaryDirectory();
     const fetchImpl = vi.fn<typeof fetch>();

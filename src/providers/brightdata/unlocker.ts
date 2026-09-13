@@ -66,6 +66,19 @@ function isTextLike(type: string | undefined): boolean {
   return Boolean(type && (type.startsWith('text/') || type.includes('json') || type.includes('xml')));
 }
 
+function responseFilename(type: string | undefined): string {
+  switch (type) {
+    case 'text/html':
+      return 'response.html';
+    case 'text/plain':
+      return 'response.txt';
+    case 'application/json':
+      return 'response.json';
+    default:
+      return 'response.bin';
+  }
+}
+
 function redact(value: string, token: string): string {
   return token ? value.split(token).join('[REDACTED]') : value;
 }
@@ -259,13 +272,14 @@ export class BrightDataUnlockerProvider implements AcquisitionProvider {
       }
 
       const body = await readBody(response, maxResponseBytes);
-      const responsePath = path.join(runDirectory, 'response.html');
+      const retainedContentPath = responseFilename(type);
+      const responsePath = path.join(runDirectory, retainedContentPath);
       await writeFile(responsePath, body);
       const success = createResult(request, startedAt, new Date().toISOString(), {
         ...statusValues,
         success: true,
         responseSizeBytes: body.byteLength,
-        retainedContentPath: 'response.html',
+        retainedContentPath,
       });
       await persistMetadata(runDirectory, success);
       return success;

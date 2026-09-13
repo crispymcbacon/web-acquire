@@ -30,7 +30,7 @@ pnpm --silent web-acquire fetch https://example.com/page --json
 pnpm web-acquire fetch https://example.com/page --timeout 60 --output-dir ./my-run
 ```
 
-Adapter detection is independent of acquisition: unknown sites can still be fetched. Fetch uses Bright Data Web Unlocker, creates `runs/<timestamp>-<host>/response.html` and `metadata.json` by default, and exits non-zero on failure. `--output-dir` uses the supplied directory directly. Use `--silent` with pnpm when stdout must contain only JSON.
+Adapter detection is independent of acquisition: unknown sites can still be fetched. Fetch uses Bright Data Web Unlocker, creates `runs/<timestamp>-<host>/response.<type>` and `metadata.json` by default (`.html`, `.txt`, `.json`, or `.bin`), and exits non-zero on failure. `--output-dir` uses the supplied directory directly. Use `--silent` with pnpm when stdout must contain only JSON.
 
 ## Bright Data configuration
 
