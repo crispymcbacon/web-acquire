@@ -1,0 +1,20 @@
+{
+  "name": "web-acquire",
+  "version": "0.1.0",
+  "description": "Reusable web acquisition CLI for AI agents",
+  "type": "module",
+  "bin": {
+    "web-acquire": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "web-acquire": "node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}
