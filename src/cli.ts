@@ -4,7 +4,11 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { selectAdapter } from './core/adapters.js';
 import { parseHttpUrl } from './core/urls.js';
-import { IdealistaAdapter } from './adapters/idealista/index.js';
+import {
+  IdealistaAdapter,
+  parseIdealistaDetail,
+  parseIdealistaSearch,
+} from './adapters/idealista/index.js';
 import { BrightDataUnlockerProvider } from './providers/brightdata/unlocker.js';
 
 const adapters = [new IdealistaAdapter()];
@@ -28,7 +32,13 @@ Usage:
 function printAdapter(value: string): void {
   const url = parseHttpUrl(value);
   const adapter = selectAdapter(url.toString(), adapters);
-  console.log(adapter ? `adapter: ${adapter.name}` : 'adapter: none (generic)');
+  if (!adapter) {
+    console.log('adapter: none (generic)');
+    return;
+  }
+  const page = adapter instanceof IdealistaAdapter ? adapter.pageType(url) : 'unknown';
+  console.log(`adapter: ${adapter.name}`);
+  console.log(`page: ${page}`);
 }
 
 function parsePositiveSeconds(value: string): number {
@@ -101,7 +111,11 @@ async function fetchUrl(value: string, options: FetchOptions): Promise<void> {
 async function extractUrl(value: string, options: FetchOptions): Promise<void> {
   const url = parseHttpUrl(value);
   const adapter = selectAdapter(url.toString(), adapters);
-  if (!(adapter instanceof IdealistaAdapter) || !adapter.isDetailUrl(url)) {
+  if (!(adapter instanceof IdealistaAdapter)) {
+    throw new Error('No extraction adapter available for this URL');
+  }
+  const pageType = adapter.pageType(url);
+  if (pageType === 'unsupported') {
     throw new Error('No extraction adapter available for this URL');
   }
 
@@ -119,33 +133,59 @@ async function extractUrl(value: string, options: FetchOptions): Promise<void> {
 
   const responsePath = path.resolve(acquisition.outputDir, acquisition.retainedContentPath);
   const html = await readFile(responsePath, 'utf8');
-  const parsed = await adapter.parse(html, url);
-  if (!parsed.listing || !parsed.completeness) {
-    throw new Error(parsed.errors.join('; ') || 'No extraction adapter available for this URL');
+  const outputDir = acquisition.outputDir;
+
+  if (pageType === 'detail') {
+    const parsed = parseIdealistaDetail({ html, url });
+    if (!parsed.listing || !parsed.completeness) {
+      throw new Error(parsed.errors.join('; ') || 'Detail extraction failed');
+    }
+    const listingPath = path.join(path.dirname(responsePath), 'listing.json');
+    await writeFile(listingPath, `${JSON.stringify(parsed.listing, null, 2)}\n`, 'utf8');
+    const result = {
+      ok: parsed.completeness.accepted,
+      outputDir,
+      listingFile: path.relative(process.cwd(), listingPath) || 'listing.json',
+      completeness: parsed.completeness,
+      ...(options.json ? { listing: parsed.listing } : {}),
+    };
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`${parsed.completeness.accepted ? '✓' : '!'} extracted ${parsed.listing.url}`);
+      console.log(`state: ${parsed.listing.listing_state}`);
+      console.log(`output: ${outputDir}`);
+      if (!parsed.completeness.accepted) {
+        console.error(`incomplete: ${parsed.completeness.rejection_reasons.join(', ')}`);
+      }
+    }
+    if (!parsed.completeness.accepted) process.exitCode = 1;
+    return;
   }
 
-  const listingPath = path.join(path.dirname(responsePath), 'listing.json');
-  await writeFile(listingPath, `${JSON.stringify(parsed.listing, null, 2)}\n`, 'utf8');
-  const outputDir = acquisition.outputDir;
+  const parsed = parseIdealistaSearch({ html, url });
+  if (!parsed.search || !parsed.completeness) {
+    throw new Error(parsed.errors.join('; ') || 'Search extraction failed');
+  }
+  const searchPath = path.join(path.dirname(responsePath), 'search.json');
+  await writeFile(searchPath, `${JSON.stringify(parsed.search, null, 2)}\n`, 'utf8');
   const result = {
     ok: parsed.completeness.accepted,
     outputDir,
-    listingFile: path.relative(process.cwd(), listingPath) || 'listing.json',
+    searchFile: path.relative(process.cwd(), searchPath) || 'search.json',
     completeness: parsed.completeness,
-    ...(options.json ? { listing: parsed.listing } : {}),
+    ...(options.json ? { search: parsed.search } : {}),
   };
-
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(`${parsed.completeness.accepted ? '✓' : '!'} extracted ${parsed.listing.url}`);
-    console.log(`state: ${parsed.listing.listing_state}`);
+    console.log(`${parsed.completeness.accepted ? '✓' : '!'} extracted search ${parsed.search.url}`);
+    console.log(`listings: ${parsed.search.listings.length}`);
     console.log(`output: ${outputDir}`);
     if (!parsed.completeness.accepted) {
-      console.error(`incomplete: ${parsed.completeness.rejection_reasons.join(', ')}`);
+      console.error(`incomplete: ${parsed.completeness.rejectionReasons.join(', ')}`);
     }
   }
-
   if (!parsed.completeness.accepted) process.exitCode = 1;
 }
 
