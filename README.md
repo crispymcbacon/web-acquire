@@ -4,9 +4,9 @@ A small reusable web acquisition CLI for AI agents. It separates **acquisition p
 
 ## Current architecture
 
-- `src/core/`: generic acquisition types, URL validation, adapter selection, and sequential search collection.
+- `src/core/`: generic acquisition types, URL validation, adapter selection, sequential search collection, and snapshot diffing.
 - `src/providers/brightdata/`: Bright Data Web Unlocker provider using native `fetch`.
-- `src/adapters/idealista/`: detail-listing and single-page search-results adapters; pagination is reported but never followed.
+- `src/adapters/idealista/`: detail-listing and single-page search-results adapters, including the Idealista pagination bridge.
 - `src/cli.ts`: command-line entry point.
 
 Adding another site adapter does not require changes to the Bright Data provider.
@@ -32,9 +32,10 @@ pnpm web-acquire extract https://www.idealista.com/inmueble/112536871/ --output-
 pnpm --silent web-acquire extract https://www.idealista.com/inmueble/112536871/ --json
 pnpm web-acquire extract https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/
 pnpm web-acquire collect 'https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/' --max-pages 2
+pnpm web-acquire diff runs/old/inventory.json runs/new/inventory.json --output diff.json
 ```
 
-Adapter detection is independent of acquisition: unknown sites can still be fetched. Fetch uses Bright Data Web Unlocker, creates `runs/<timestamp>-<host>/response.<type>` and `metadata.json` by default (`.html`, `.txt`, `.json`, or `.bin`), and exits non-zero on failure. `extract` acquires and parses one supported Idealista page, writing `listing.json` or `search.json`. `collect` follows a supported paginated search sequentially and writes one `inventory.json` plus per-page artifacts. `fetch` only acquires one generic URL. `--output-dir` uses the supplied directory directly. Use `--silent` with pnpm when stdout must contain only JSON.
+Adapter detection is independent of acquisition: unknown sites can still be fetched. Fetch uses Bright Data Web Unlocker, creates `runs/<timestamp>-<host>/response.<type>` and `metadata.json` by default (`.html`, `.txt`, `.json`, or `.bin`), and exits non-zero on failure. `fetch` acquires one generic URL. `extract` acquires and parses one supported Idealista page, writing `listing.json` or `search.json`. `collect` follows a supported paginated search sequentially and writes one schema 2 inventory snapshot plus per-page artifacts. `diff` compares two complete inventory snapshots offline; incomplete snapshots are intentionally rejected for presence/removal comparisons. Schema 1 inventories are rejected by `diff`; recollect them to create schema 2 snapshots. `--output-dir` uses the supplied directory directly. Use `--silent` with pnpm when stdout must contain only JSON.
 
 ## Bright Data configuration
 

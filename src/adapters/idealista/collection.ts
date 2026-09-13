@@ -3,6 +3,10 @@ import { parseIdealistaSearch } from './search.js';
 import type { IdealistaSearchListing, IdealistaSearchResult } from './search-types.js';
 
 /** Adapts Idealista's one-page parser to the generic sequential collector. */
+export function getIdealistaListingIdentity(listing: IdealistaSearchListing): string {
+  return listing.idealistaId;
+}
+
 export const idealistaSearchCollectionAdapter: PaginatedSearchAdapter<IdealistaSearchResult, IdealistaSearchListing> = {
   parseSearch(document, url) {
     const parsed = parseIdealistaSearch({ html: document, url });
@@ -16,9 +20,7 @@ export const idealistaSearchCollectionAdapter: PaginatedSearchAdapter<IdealistaS
       errors: parsed.errors,
     };
   },
-  getItemIdentity(item) {
-    return item.idealistaId;
-  },
+  getItemIdentity: getIdealistaListingIdentity,
   setItemPosition(item, position) {
     return { ...item, position };
   },

@@ -3,13 +3,16 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { selectAdapter } from './core/adapters.js';
-import { collectPaginatedSearch, MAX_COLLECTION_PAGES, type AcquiredSearchPage } from './core/collect.js';
+import { collectPaginatedSearch, MAX_COLLECTION_PAGES, type AcquiredSearchPage, type SearchInventory } from './core/collect.js';
+import { diffInventories } from './core/diff.js';
 import { parseHttpUrl } from './core/urls.js';
 import {
   IdealistaAdapter,
+  getIdealistaListingIdentity,
   idealistaSearchCollectionAdapter,
   parseIdealistaDetail,
   parseIdealistaSearch,
+  type IdealistaSearchListing,
 } from './adapters/idealista/index.js';
 import { BrightDataUnlockerProvider } from './providers/brightdata/unlocker.js';
 
@@ -25,6 +28,11 @@ interface CollectionOptions extends FetchOptions {
   maxPages: number;
 }
 
+interface DiffOptions {
+  json: boolean;
+  output?: string;
+}
+
 function printHelp(): void {
   console.log(`web-acquire - reusable web acquisition CLI
 
@@ -32,6 +40,7 @@ Usage:
   web-acquire fetch <url> [--json] [--timeout <seconds>] [--output-dir <dir>]
   web-acquire extract <url> [--json] [--timeout <seconds>] [--output-dir <dir>]
   web-acquire collect <search-url> [--json] [--timeout <seconds>] [--output-dir <dir>] [--max-pages <number>]
+  web-acquire diff <previous-inventory> <current-inventory> [--json] [--output <file>]
   web-acquire adapter <url>
 `);
 }
@@ -109,6 +118,60 @@ function parseCollectionOptions(options: string[]): CollectionOptions {
     }
   }
   return result;
+}
+
+function parseDiffOptions(options: string[]): DiffOptions {
+  const result: DiffOptions = { json: false };
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
+    if (option === '--json') {
+      result.json = true;
+    } else if (option === '--output') {
+      const value = options[++index];
+      if (!value || value.startsWith('--')) throw new Error('--output requires a file path');
+      result.output = value;
+    } else {
+      throw new Error(`Unknown diff option: ${option}`);
+    }
+  }
+  return result;
+}
+
+async function diffFiles(previousPath: string, currentPath: string, options: DiffOptions): Promise<void> {
+  async function readInventory(filePath: string, label: string): Promise<unknown> {
+    let contents: string;
+    try {
+      contents = await readFile(filePath, 'utf8');
+    } catch (error: unknown) {
+      throw new Error(`Unable to read ${label} inventory: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      return JSON.parse(contents) as unknown;
+    } catch (error: unknown) {
+      throw new Error(`Unable to parse ${label} inventory JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const previous = await readInventory(previousPath, 'previous');
+  const current = await readInventory(currentPath, 'current');
+  const diff = diffInventories<IdealistaSearchListing>({
+    previous: previous as SearchInventory<IdealistaSearchListing>,
+    current: current as SearchInventory<IdealistaSearchListing>,
+    getItemIdentity: getIdealistaListingIdentity,
+  });
+
+  if (options.output) {
+    const outputPath = path.resolve(options.output);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify(diff, null, 2)}\n`, 'utf8');
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify({ ok: true, ...diff, ...(options.output ? { output: options.output } : {}) }, null, 2));
+  } else {
+    console.log(`Inventory diff\n\nPrevious: ${diff.summary.previousCount} listings\nCurrent:  ${diff.summary.currentCount} listings\n\nAdded:     ${diff.summary.added}\nRetained: ${diff.summary.retained}\nRemoved:   ${diff.summary.removed}`);
+    if (options.output) console.log(`\noutput: ${options.output}`);
+  }
 }
 
 async function collectUrl(value: string, options: CollectionOptions): Promise<void> {
@@ -336,6 +399,25 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (command === 'adapter') {
     if (!value || options.length > 0) throw new Error('Usage: web-acquire adapter <url>');
     printAdapter(value);
+    return;
+  }
+
+  if (command === 'diff') {
+    const jsonRequested = options.includes('--json');
+    try {
+      const currentPath = options[0];
+      if (!value || !currentPath || currentPath.startsWith('--')) {
+        throw new Error('Usage: web-acquire diff <previous-inventory> <current-inventory> [--json] [--output <file>]');
+      }
+      await diffFiles(value, currentPath, parseDiffOptions(options.slice(1)));
+    } catch (error: unknown) {
+      if (!jsonRequested) throw error;
+      console.log(JSON.stringify({
+        ok: false,
+        errors: [error instanceof Error ? error.message : String(error)],
+      }, null, 2));
+      process.exitCode = 1;
+    }
     return;
   }
 

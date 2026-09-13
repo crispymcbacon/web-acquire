@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "kind": "search_inventory",
+  "source": "idealista",
+  "snapshotId": "44444444-4444-4444-8444-444444444444",
+  "initialUrl": "https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/?habitaciones=3",
+  "normalizedInitialUrl": "https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/?habitaciones=3",
+  "searchKey": "different-search-key",
+  "status": "complete",
+  "collectedAt": "2026-01-02T00:00:00.000Z",
+  "summary": {
+    "pagesFetched": 1,
+    "listingsSeen": 3,
+    "uniqueListings": 3,
+    "duplicatesSkipped": 0,
+    "reportedResultCount": 3
+  },
+  "listings": [
+    { "idealistaId": "B", "title": "Listing B" },
+    { "idealistaId": "C", "title": "Listing C" },
+    { "idealistaId": "D", "title": "Listing D" }
+  ],
+  "pages": [],
+  "warnings": [],
+  "nextUrl": null
+}

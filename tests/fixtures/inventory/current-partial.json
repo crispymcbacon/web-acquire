@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "kind": "search_inventory",
+  "source": "idealista",
+  "snapshotId": "33333333-3333-4333-8333-333333333333",
+  "initialUrl": "https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/",
+  "normalizedInitialUrl": "https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/",
+  "searchKey": "50c86347e440e181cc8bf4d6c9cd310c7549a81c9bdee0bbcb000128b2fd785d",
+  "status": "partial",
+  "collectedAt": "2026-01-02T00:00:00.000Z",
+  "summary": {
+    "pagesFetched": 1,
+    "listingsSeen": 3,
+    "uniqueListings": 3,
+    "duplicatesSkipped": 0,
+    "reportedResultCount": 3
+  },
+  "listings": [
+    { "idealistaId": "B", "title": "Listing B" },
+    { "idealistaId": "C", "title": "Listing C" },
+    { "idealistaId": "D", "title": "Listing D" }
+  ],
+  "pages": [],
+  "warnings": ["collection stopped early"],
+  "nextUrl": "https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/pagina-2.htm"
+}

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createSearchKey, normalizeUrl } from '../src/core/identity.js';
 import {
   collectPaginatedSearch,
   MAX_COLLECTION_PAGES,
@@ -69,6 +70,10 @@ describe('generic paginated search collection', () => {
     expect(acquirePage).toHaveBeenCalledTimes(3);
     expect(acquirePage.mock.calls.map(([url]) => url)).toEqual([urls.first, urls.second, urls.third]);
     expect(inventory.status).toBe('complete');
+    expect(inventory.schema).toBe(2);
+    expect(inventory.snapshotId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(inventory.normalizedInitialUrl).toBe(normalizeUrl(urls.first));
+    expect(inventory.searchKey).toBe(createSearchKey('fake-site', inventory.normalizedInitialUrl));
     expect(inventory.listings.map((item) => `${item.id}:${item.position}`)).toEqual(['A:1', 'B:2', 'C:3', 'D:4', 'E:5', 'F:6']);
     expect(inventory.summary).toEqual({
       pagesFetched: 3,

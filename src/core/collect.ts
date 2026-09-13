@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { createSearchKey, normalizeUrl } from './identity.js';
+
 export const MAX_COLLECTION_PAGES = 500;
 
 export type CollectionStatus = 'complete' | 'max_pages_reached' | 'partial' | 'failed';
@@ -40,9 +43,12 @@ export interface SearchInventoryPage {
 }
 
 export interface SearchInventory<TItem> {
-  schema: 1;
+  schema: 2;
   source: string;
+  snapshotId: string;
   initialUrl: string;
+  normalizedInitialUrl: string;
+  searchKey: string;
   status: CollectionStatus;
   collectedAt: string;
   summary: {
@@ -73,21 +79,6 @@ export interface CollectPaginatedSearchOptions<TPage, TItem> {
   collectedAt?: string;
 }
 
-function normalizeUrl(value: string | URL): string {
-  const url = typeof value === 'string' ? new URL(value) : new URL(value.toString());
-  url.hash = '';
-  url.hostname = url.hostname.toLowerCase();
-  if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) {
-    url.port = '';
-  }
-  if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '/');
-  const params = [...url.searchParams.entries()].sort(([leftKey, leftValue], [rightKey, rightValue]) =>
-    leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue));
-  url.search = '';
-  for (const [key, valuePart] of params) url.searchParams.append(key, valuePart);
-  return url.toString();
-}
-
 function errorText(errors: string[] | undefined, fallback: string): string {
   return errors?.filter(Boolean).join('; ') || fallback;
 }
@@ -99,13 +90,15 @@ export async function collectPaginatedSearch<TPage, TItem>(
     throw new Error(`maxPages must be an integer between 1 and ${MAX_COLLECTION_PAGES}`);
   }
 
-  const initialUrl = normalizeUrl(options.initialUrl);
+  const normalizedInitialUrl = normalizeUrl(options.initialUrl);
+  const snapshotId = randomUUID();
+  const collectedAt = options.collectedAt ?? new Date().toISOString();
   const visitedUrls = new Set<string>();
   const seenItemIds = new Set<string>();
   const listings: TItem[] = [];
   const pages: SearchInventoryPage[] = [];
   const warnings: string[] = [];
-  let currentUrl: string | null = initialUrl;
+  let currentUrl: string | null = normalizedInitialUrl;
   let status: CollectionStatus = 'complete';
   let continuationUrl: string | null = null;
   let reportedResultCount: number | null = null;
@@ -262,11 +255,14 @@ export async function collectPaginatedSearch<TPage, TItem>(
   }
 
   return {
-    schema: 1,
+    schema: 2,
     source: options.source,
-    initialUrl,
     status,
-    collectedAt: options.collectedAt ?? new Date().toISOString(),
+    snapshotId,
+    initialUrl: normalizedInitialUrl,
+    normalizedInitialUrl,
+    searchKey: createSearchKey(options.source, normalizedInitialUrl),
+    collectedAt,
     summary: {
       pagesFetched: pages.length,
       listingsSeen,
