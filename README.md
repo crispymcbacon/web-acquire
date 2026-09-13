@@ -18,7 +18,7 @@ pnpm install
 pnpm build
 ```
 
-Copy `.env.example` to `.env` for local credentials. Process environment values take precedence over `.env`. Never commit `.env` or print credential values.
+Copy `.env.example` to `.env` for local credentials. Process environment values take precedence over config files. Never commit `.env` or print credential values. For fresh Linux installation and deployment, see [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Commands
 
@@ -36,6 +36,16 @@ pnpm web-acquire diff runs/old/inventory.json runs/new/inventory.json --output d
 ```
 
 Adapter detection is independent of acquisition: unknown sites can still be fetched. Fetch uses Bright Data Web Unlocker, creates `runs/<timestamp>-<host>/response.<type>` and `metadata.json` by default (`.html`, `.txt`, `.json`, or `.bin`), and exits non-zero on failure. `fetch` acquires one generic URL. `extract` acquires and parses one supported Idealista page, writing `listing.json` or `search.json`. `collect` follows a supported paginated search sequentially and writes one schema 2 inventory snapshot plus per-page artifacts. `diff` compares two complete inventory snapshots offline; incomplete snapshots are intentionally rejected for presence/removal comparisons. Schema 1 inventories are rejected by `diff`; recollect them to create schema 2 snapshots. `--output-dir` uses the supplied directory directly. Use `--silent` with pnpm when stdout must contain only JSON.
+
+## Installation and production deployment
+
+For a fresh Linux machine, use the idempotent installer from an existing checkout:
+
+```bash
+./scripts/install.sh
+```
+
+It builds the compiled CLI, installs `~/.local/bin/web-acquire`, and keeps production credentials in `~/.config/web-acquire/.env`. See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the exact setup and verification steps.
 
 ## Bright Data configuration
 

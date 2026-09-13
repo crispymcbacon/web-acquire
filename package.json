@@ -6,6 +6,9 @@
   "bin": {
     "web-acquire": "dist/cli.js"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

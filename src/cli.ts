@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { selectAdapter } from './core/adapters.js';
 import { collectPaginatedSearch, MAX_COLLECTION_PAGES, type AcquiredSearchPage, type SearchInventory } from './core/collect.js';
 import { diffInventories } from './core/diff.js';
@@ -14,7 +15,13 @@ import {
   parseIdealistaSearch,
   type IdealistaSearchListing,
 } from './adapters/idealista/index.js';
+import {
+  getBrightDataConfigPaths,
+  loadBrightDataConfig,
+  DEFAULT_BRIGHTDATA_ENDPOINT,
+} from './providers/brightdata/config.js';
 import { BrightDataUnlockerProvider } from './providers/brightdata/unlocker.js';
+import { packageVersion } from './version.js';
 
 const adapters = [new IdealistaAdapter()];
 
@@ -33,6 +40,10 @@ interface DiffOptions {
   output?: string;
 }
 
+interface DoctorOptions {
+  json: boolean;
+}
+
 function printHelp(): void {
   console.log(`web-acquire - reusable web acquisition CLI
 
@@ -41,8 +52,14 @@ Usage:
   web-acquire extract <url> [--json] [--timeout <seconds>] [--output-dir <dir>]
   web-acquire collect <search-url> [--json] [--timeout <seconds>] [--output-dir <dir>] [--max-pages <number>]
   web-acquire diff <previous-inventory> <current-inventory> [--json] [--output <file>]
+  web-acquire doctor [--json]
   web-acquire adapter <url>
+  web-acquire --version
 `);
+}
+
+function printVersion(): void {
+  console.log(`web-acquire ${packageVersion()}`);
 }
 
 function printAdapter(value: string): void {
@@ -135,6 +152,65 @@ function parseDiffOptions(options: string[]): DiffOptions {
     }
   }
   return result;
+}
+
+function parseDoctorOptions(options: string[]): DoctorOptions {
+  const result: DoctorOptions = { json: false };
+  for (const option of options) {
+    if (option === '--json') result.json = true;
+    else throw new Error(`Unknown doctor option: ${option}`);
+  }
+  return result;
+}
+
+async function pathInfo(filePath: string): Promise<{ exists: boolean; permissions: string | null }> {
+  try {
+    const details = await stat(filePath);
+    return {
+      exists: true,
+      permissions: (details.mode & 0o777).toString(8).padStart(3, '0'),
+    };
+  } catch {
+    return { exists: false, permissions: null };
+  }
+}
+
+async function doctor(options: DoctorOptions): Promise<void> {
+  const paths = getBrightDataConfigPaths();
+  const [userInfo, projectInfo] = await Promise.all([pathInfo(paths.user), pathInfo(paths.project)]);
+  const config = loadBrightDataConfig();
+  const source = userInfo.exists ? 'user' : projectInfo.exists ? 'project' : 'none';
+  const configPath = source === 'user' ? paths.user : source === 'project' ? paths.project : paths.user;
+  const info = {
+    ok: true,
+    version: packageVersion(),
+    node: process.version,
+    config: {
+      path: configPath,
+      source,
+      permissions: source === 'user' ? userInfo.permissions : source === 'project' ? projectInfo.permissions : null,
+    },
+    brightData: {
+      apiTokenConfigured: Boolean(config.apiToken),
+      unlockerZoneConfigured: Boolean(config.unlockerZone),
+      endpoint: config.endpoint || DEFAULT_BRIGHTDATA_ENDPOINT,
+    },
+    networkCheck: 'not run',
+  };
+  if (options.json) {
+    console.log(JSON.stringify(info, null, 2));
+    return;
+  }
+  console.log(`web-acquire ${info.version}`);
+  console.log(`Node: ${info.node}`);
+  console.log(`Config: ${info.config.path}`);
+  if (info.config.source === 'none') console.log('Config status: not found');
+  else console.log(`Config permissions: ${info.config.permissions}`);
+  console.log('\nBright Data:');
+  console.log(`  API token: ${info.brightData.apiTokenConfigured ? 'configured' : 'not configured'}`);
+  console.log(`  Unlocker zone: ${info.brightData.unlockerZoneConfigured ? 'configured' : 'not configured'}`);
+  console.log(`  Endpoint: ${info.brightData.endpoint}`);
+  console.log('\nNetwork check: not run');
 }
 
 async function diffFiles(previousPath: string, currentPath: string, options: DiffOptions): Promise<void> {
@@ -391,8 +467,27 @@ async function extractUrl(value: string, options: FetchOptions): Promise<void> {
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const [command, value, ...options] = argv;
 
+  if (command === '--version' || command === '-V' || command === 'version') {
+    if (value || options.length > 0) throw new Error('Usage: web-acquire --version');
+    printVersion();
+    return;
+  }
+
   if (!command || command === '--help' || command === '-h') {
     printHelp();
+    return;
+  }
+
+  if (command === 'doctor') {
+    const doctorArguments = value ? [value, ...options] : options;
+    const jsonRequested = doctorArguments.includes('--json');
+    try {
+      await doctor(parseDoctorOptions(doctorArguments));
+    } catch (error: unknown) {
+      if (!jsonRequested) throw error;
+      console.log(JSON.stringify({ ok: false, errors: [error instanceof Error ? error.message : String(error)] }, null, 2));
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -446,7 +541,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   throw new Error(`Unknown command: ${command}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+async function isMainModule(): Promise<boolean> {
+  if (!process.argv[1]) return false;
+  try {
+    return await realpath(fileURLToPath(import.meta.url)) === await realpath(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (await isMainModule()) {
   main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
