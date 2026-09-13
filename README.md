@@ -1,12 +1,12 @@
 # web-acquire
 
-A small reusable web acquisition CLI for AI agents. It separates **acquisition providers**, which reliably fetch URLs, from **site adapters**, which extract structured data from a particular website.
+A small reusable web acquisition CLI for AI agents. It separates **acquisition providers**, which fetch URLs, from **site adapters**, which extract structured data from a particular website.
 
 ## Current architecture
 
 - `src/core/`: generic acquisition types, URL validation, and adapter selection.
-- `src/providers/brightdata/`: Bright Data Web Unlocker provider skeleton. It validates configuration but intentionally makes no network requests yet.
-- `src/adapters/idealista/`: Idealista adapter skeleton for `idealista.com` and `www.idealista.com`; parsing is not implemented yet.
+- `src/providers/brightdata/`: Bright Data Web Unlocker provider using native `fetch`.
+- `src/adapters/idealista/`: adapter skeleton for `idealista.com` and `www.idealista.com`; parsing is not implemented yet.
 - `src/cli.ts`: command-line entry point.
 
 Adding another site adapter does not require changes to the Bright Data provider.
@@ -18,7 +18,7 @@ pnpm install
 pnpm build
 ```
 
-Copy `.env.example` to `.env` only when configuring local credentials. Never commit `.env` or print its values.
+Copy `.env.example` to `.env` for local credentials. Process environment values take precedence over `.env`. Never commit `.env` or print credential values.
 
 ## Commands
 
@@ -26,16 +26,15 @@ Copy `.env.example` to `.env` only when configuring local credentials. Never com
 pnpm web-acquire adapter https://www.idealista.com/inmueble/123/
 pnpm web-acquire adapter https://example.com/page
 pnpm web-acquire fetch https://example.com/page
-pnpm web-acquire fetch https://example.com/page --json
+pnpm --silent web-acquire fetch https://example.com/page --json
+pnpm web-acquire fetch https://example.com/page --timeout 60 --output-dir ./my-run
 ```
 
-After installation as a package, the same commands are available as `web-acquire ...`.
+Adapter detection is independent of acquisition: unknown sites can still be fetched. Fetch uses Bright Data Web Unlocker, creates `runs/<timestamp>-<host>/response.html` and `metadata.json` by default, and exits non-zero on failure. `--output-dir` uses the supplied directory directly. Use `--silent` with pnpm when stdout must contain only JSON.
 
-Adapter detection returns `idealista` for supported Idealista domains and `none (generic)` otherwise. Fetch currently returns a clear not-enabled result; it does not contact Bright Data.
+## Bright Data configuration
 
-## Planned work
-
-The first real acquisition implementation will use `BRIGHTDATA_API_TOKEN`, `BRIGHTDATA_UNLOCKER_ZONE`, and the optional `BRIGHTDATA_UNLOCKER_ENDPOINT` (defaulting to `https://api.brightdata.com/request`). The Idealista adapter will later parse acquired documents. Browser API, photo downloading, and site-specific extraction are intentionally out of scope for this foundation milestone.
+The provider sends one POST request per acquisition to `BRIGHTDATA_UNLOCKER_ENDPOINT`, defaulting to `https://api.brightdata.com/request`, with the configured API token and zone. Credentials are validated only for `fetch`; `adapter` and `--help` do not require them. Requests have a 45-second default timeout, no automatic retries, and a 20 MB retained-response limit.
 
 ## Development
 
@@ -44,3 +43,5 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+Idealista extraction, Browser API, images, retries, concurrency, and publishing are intentionally out of scope for this milestone.

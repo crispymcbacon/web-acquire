@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+
 export const DEFAULT_BRIGHTDATA_ENDPOINT = 'https://api.brightdata.com/request';
 
 export interface BrightDataConfig {
@@ -12,6 +14,8 @@ export interface ConfigValidation {
 }
 
 export function loadBrightDataConfig(env: NodeJS.ProcessEnv = process.env): BrightDataConfig {
+  if (env === process.env) dotenv.config({ quiet: true });
+
   return {
     apiToken: env.BRIGHTDATA_API_TOKEN?.trim() ?? '',
     unlockerZone: env.BRIGHTDATA_UNLOCKER_ZONE?.trim() ?? '',

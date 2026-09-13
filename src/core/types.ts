@@ -1,4 +1,4 @@
-export type AcquisitionMethod = 'brightdata-web-unlocker' | 'native-fetch' | 'unknown';
+export type AcquisitionMethod = 'web_unlocker' | 'native-fetch' | 'unknown';
 
 export interface AcquisitionRequest {
   url: string;
@@ -16,6 +16,7 @@ export interface AcquisitionResult {
   elapsedMs: number;
   content?: string;
   retainedContentPath?: string;
+  outputDir?: string;
   warnings: string[];
   errors: string[];
   startedAt: string;
