@@ -1,6 +1,6 @@
 # web-acquire
 
-CLI that fetches pages and, for a few sites, turns them into structured listings. A provider downloads the URL. A site adapter reads the response.
+A CLI for fetching protected web pages and, for supported sites, converting them into structured listings. Acquisition providers handle downloading the page, while site adapters parse the response into site-specific data.
 
 ## Layout
 
