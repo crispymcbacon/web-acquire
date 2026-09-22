@@ -1,15 +1,13 @@
 # web-acquire
 
-A small reusable web acquisition CLI for AI agents. It separates **acquisition providers**, which fetch URLs, from **site adapters**, which extract structured data from a particular website.
+CLI that fetches pages and, for a few sites, turns them into structured listings. A provider downloads the URL. A site adapter reads the response.
 
-## Current architecture
+## Layout
 
-- `src/core/`: generic acquisition types, URL validation, adapter selection, sequential search collection, and snapshot diffing.
-- `src/providers/brightdata/`: Bright Data Web Unlocker provider using native `fetch`.
-- `src/adapters/idealista/`: detail-listing and single-page search-results adapters, including the Idealista pagination bridge.
-- `src/cli.ts`: command-line entry point.
-
-Adding another site adapter does not require changes to the Bright Data provider.
+- `src/core/` — URL checks, adapter selection, sequential search collection, snapshot diffs.
+- `src/providers/brightdata/` — Bright Data Web Unlocker, using `fetch`.
+- `src/adapters/` — Idealista (detail and search), plus LOCA Barcelona, ShBarcelona, and GuinotPrunera rental search.
+- `src/cli.ts` — entry point.
 
 ## Setup
 
@@ -18,38 +16,63 @@ pnpm install
 pnpm build
 ```
 
-Copy `.env.example` to `.env` for local credentials. Process environment values take precedence over config files. Never commit `.env` or print credential values. For fresh Linux installation and deployment, see [`docs/DEPLOY.md`](docs/DEPLOY.md).
+Copy `.env.example` to `.env` for local credentials. Values already set in the environment override the file. Do not commit `.env`, and do not print tokens. Linux install steps are in [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Commands
+
+`adapter` only names the handler for a URL. It does not download the page. Unknown hosts can still be fetched.
 
 ```bash
 pnpm web-acquire adapter https://www.idealista.com/inmueble/123/
 pnpm web-acquire adapter https://example.com/page
+```
+
+`fetch` downloads one URL through Bright Data. By default it writes `runs/<timestamp>-<host>/response.<type>` and `metadata.json`. The response file is `.html`, `.txt`, `.json`, or `.bin`. Failure exits non-zero.
+
+```bash
 pnpm web-acquire fetch https://example.com/page
 pnpm --silent web-acquire fetch https://example.com/page --json
 pnpm web-acquire fetch https://example.com/page --timeout 60 --output-dir ./my-run
+```
+
+`--output-dir` is the directory you pass, with nothing appended. Use `--silent` with pnpm when stdout must be JSON only.
+
+`extract` is Idealista only. It fetches the page and writes `listing.json` for a detail URL, or `search.json` for a search URL.
+
+```bash
 pnpm web-acquire extract https://www.idealista.com/inmueble/112536871/ --output-dir ./idealista-run
 pnpm --silent web-acquire extract https://www.idealista.com/inmueble/112536871/ --json
 pnpm web-acquire extract https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/
+```
+
+`collect` follows a supported search page by page and writes one schema 2 inventory, plus the files for each page. Search URLs work for Idealista, LOCA Barcelona, ShBarcelona, and GuinotPrunera.
+
+```bash
 pnpm web-acquire collect 'https://www.idealista.com/alquiler-viviendas/barcelona-barcelona/' --max-pages 2
+pnpm web-acquire collect 'https://www.locabarcelona.com/en/property-search/?status=long-term-rental&bedrooms=3&max-price=2500'
+pnpm web-acquire collect 'https://www.shbarcelona.com/apartments-for-rent/long-term?maxPrice=2400&type=9&bedrooms=3'
+pnpm web-acquire collect 'https://www.guinotprunera.com/es/alquiler/en-barcelona/con-3_habitaciones_min,5_habitaciones_max,2400_precio_max'
+```
+
+`diff` compares two complete inventories offline. Incomplete snapshots are rejected, so a bad scrape is not treated as a removal of every listing. Schema 1 inventories are rejected too; collect again to get schema 2.
+
+```bash
 pnpm web-acquire diff runs/old/inventory.json runs/new/inventory.json --output diff.json
 ```
 
-Adapter detection is independent of acquisition: unknown sites can still be fetched. Fetch uses Bright Data Web Unlocker, creates `runs/<timestamp>-<host>/response.<type>` and `metadata.json` by default (`.html`, `.txt`, `.json`, or `.bin`), and exits non-zero on failure. `fetch` acquires one generic URL. `extract` acquires and parses one supported Idealista page, writing `listing.json` or `search.json`. `collect` follows a supported paginated search sequentially and writes one schema 2 inventory snapshot plus per-page artifacts. `diff` compares two complete inventory snapshots offline; incomplete snapshots are intentionally rejected for presence/removal comparisons. Schema 1 inventories are rejected by `diff`; recollect them to create schema 2 snapshots. `--output-dir` uses the supplied directory directly. Use `--silent` with pnpm when stdout must contain only JSON.
+## Install on Linux
 
-## Installation and production deployment
-
-For a fresh Linux machine, use the idempotent installer from an existing checkout:
+From a checkout already on the machine:
 
 ```bash
 ./scripts/install.sh
 ```
 
-It builds the compiled CLI, installs `~/.local/bin/web-acquire`, and keeps production credentials in `~/.config/web-acquire/.env`. See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the exact setup and verification steps.
+The script builds the CLI, links `~/.local/bin/web-acquire`, and reads production credentials from `~/.config/web-acquire/.env`. Setup and checks are in [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
-## Bright Data configuration
+## Bright Data
 
-The provider sends one POST request per acquisition to `BRIGHTDATA_UNLOCKER_ENDPOINT`, defaulting to `https://api.brightdata.com/request`, with the configured API token and zone. Credentials are validated only for `fetch`, `extract`, and `collect`; `adapter` and `--help` do not require them. Requests have a 45-second default timeout, no automatic retries, and a 20 MB retained-response limit.
+Each acquisition is one POST to `BRIGHTDATA_UNLOCKER_ENDPOINT`, default `https://api.brightdata.com/request`, with the configured API token and zone. Credentials are checked for `fetch`, `extract`, and `collect`. `adapter` and `--help` do not need them. The default timeout is 45 seconds. There are no retries. Responses over 20 MB are dropped.
 
 ## Development
 
@@ -59,4 +82,4 @@ pnpm test
 pnpm build
 ```
 
-Idealista detail expansion from search results, Browser API, images, retries, concurrency, and publishing are intentionally out of scope for this milestone.
+Still out of scope: opening Idealista detail pages from a search, Browser API, image download, retries, concurrency, and publishing.
