@@ -4,7 +4,7 @@ import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { selectAdapter } from './core/adapters.js';
-import { collectPaginatedSearch, MAX_COLLECTION_PAGES, type AcquiredSearchPage, type SearchInventory } from './core/collect.js';
+import { collectPaginatedSearch, MAX_COLLECTION_PAGES, type AcquiredSearchPage, type PaginatedSearchAdapter, type SearchInventory } from './core/collect.js';
 import { diffInventories } from './core/diff.js';
 import { parseHttpUrl } from './core/urls.js';
 import {
@@ -16,6 +16,21 @@ import {
   type IdealistaSearchListing,
 } from './adapters/idealista/index.js';
 import {
+  GuinotPruneraAdapter,
+  getGuinotListingIdentity,
+  guinotSearchCollectionAdapter,
+} from './adapters/guinotprunera/index.js';
+import {
+  LocaBarcelonaAdapter,
+  getLocaListingIdentity,
+  locaSearchCollectionAdapter,
+} from './adapters/locabarcelona/index.js';
+import {
+  ShBarcelonaAdapter,
+  getShListingIdentity,
+  shSearchCollectionAdapter,
+} from './adapters/shbarcelona/index.js';
+import {
   getBrightDataConfigPaths,
   loadBrightDataConfig,
   DEFAULT_BRIGHTDATA_ENDPOINT,
@@ -23,7 +38,33 @@ import {
 import { BrightDataUnlockerProvider } from './providers/brightdata/unlocker.js';
 import { packageVersion } from './version.js';
 
-const adapters = [new IdealistaAdapter()];
+const adapters = [
+  new IdealistaAdapter(),
+  new LocaBarcelonaAdapter(),
+  new ShBarcelonaAdapter(),
+  new GuinotPruneraAdapter(),
+];
+
+function pageTypeOf(adapter: (typeof adapters)[number], url: URL): string {
+  return adapter.pageType(url);
+}
+
+function collectionFor(adapter: (typeof adapters)[number], url: URL): PaginatedSearchAdapter<unknown, unknown> | undefined {
+  if (adapter.pageType(url) !== 'search') return undefined;
+  if (adapter instanceof IdealistaAdapter) return idealistaSearchCollectionAdapter as PaginatedSearchAdapter<unknown, unknown>;
+  if (adapter instanceof LocaBarcelonaAdapter) return locaSearchCollectionAdapter as PaginatedSearchAdapter<unknown, unknown>;
+  if (adapter instanceof ShBarcelonaAdapter) return shSearchCollectionAdapter as PaginatedSearchAdapter<unknown, unknown>;
+  if (adapter instanceof GuinotPruneraAdapter) return guinotSearchCollectionAdapter as PaginatedSearchAdapter<unknown, unknown>;
+  return undefined;
+}
+
+function identityFor(source: string): ((item: unknown) => string) | undefined {
+  if (source === 'idealista') return (item) => getIdealistaListingIdentity(item as IdealistaSearchListing);
+  if (source === 'locabarcelona') return (item) => getLocaListingIdentity(item as Parameters<typeof getLocaListingIdentity>[0]);
+  if (source === 'shbarcelona') return (item) => getShListingIdentity(item as Parameters<typeof getShListingIdentity>[0]);
+  if (source === 'guinotprunera') return (item) => getGuinotListingIdentity(item as Parameters<typeof getGuinotListingIdentity>[0]);
+  return undefined;
+}
 
 interface FetchOptions {
   json: boolean;
@@ -69,7 +110,7 @@ function printAdapter(value: string): void {
     console.log('adapter: none (generic)');
     return;
   }
-  const page = adapter instanceof IdealistaAdapter ? adapter.pageType(url) : 'unknown';
+  const page = pageTypeOf(adapter as (typeof adapters)[number], url);
   console.log(`adapter: ${adapter.name}`);
   console.log(`page: ${page}`);
 }
@@ -228,13 +269,11 @@ async function diffFiles(previousPath: string, currentPath: string, options: Dif
     }
   }
 
-  const previous = await readInventory(previousPath, 'previous');
-  const current = await readInventory(currentPath, 'current');
-  const diff = diffInventories<IdealistaSearchListing>({
-    previous: previous as SearchInventory<IdealistaSearchListing>,
-    current: current as SearchInventory<IdealistaSearchListing>,
-    getItemIdentity: getIdealistaListingIdentity,
-  });
+  const previous = await readInventory(previousPath, 'previous') as SearchInventory<unknown>;
+  const current = await readInventory(currentPath, 'current') as SearchInventory<unknown>;
+  const getItemIdentity = identityFor(current.source);
+  if (!getItemIdentity) throw new Error(`No listing identity for source ${current.source || 'unknown'}`);
+  const diff = diffInventories({ previous, current, getItemIdentity });
 
   if (options.output) {
     const outputPath = path.resolve(options.output);
@@ -253,12 +292,13 @@ async function diffFiles(previousPath: string, currentPath: string, options: Dif
 async function collectUrl(value: string, options: CollectionOptions): Promise<void> {
   const url = parseHttpUrl(value);
   const adapter = selectAdapter(url.toString(), adapters);
-  if (!(adapter instanceof IdealistaAdapter) || adapter.pageType(url) !== 'search') {
+  const collectionAdapter = adapter ? collectionFor(adapter as (typeof adapters)[number], url) : undefined;
+  if (!adapter || !collectionAdapter) {
     throw new Error('No paginated search adapter available for this URL');
   }
 
   const collectedAt = new Date().toISOString();
-  const collectionRoot = path.resolve(options.outputDir ?? path.join('runs', `${collectedAt.replace(/[.:]/g, '-')}-idealista-collection`));
+  const collectionRoot = path.resolve(options.outputDir ?? path.join('runs', `${collectedAt.replace(/[.:]/g, '-')}-${adapter.name}-collection`));
   await mkdir(collectionRoot, { recursive: true });
 
   const acquirePage = async (pageUrl: string, index: number): Promise<AcquiredSearchPage> => {
@@ -311,7 +351,7 @@ async function collectUrl(value: string, options: CollectionOptions): Promise<vo
     initialUrl: url,
     source: adapter.name,
     maxPages: options.maxPages,
-    adapter: idealistaSearchCollectionAdapter,
+    adapter: collectionAdapter,
     acquirePage,
     collectedAt,
     onPageParsed: async (event) => {
